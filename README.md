@@ -26,7 +26,7 @@
 | `t_relic_photo` | 入藏关联照片，一张照片一行 |
 | `t_repair_project` | 修复项目：项目编号、委托人、修复方案；状态机见下 |
 | `t_repair_stage` | 修复阶段结果，阶段号项目内递增 |
-| `t_repair_acceptance` | 验收记录，一个项目一条 |
+| `t_repair_acceptance` | 验收记录（museum-14 起每次双确认通过追加一条，补修重验只增不删） |
 | `t_relic_loan` | 借出/归还单，一条记录贯通一次借还 |
 | `t_relic_ledger` | 台账流水：入藏/借出/归还/修复/验收/撤销/作废/影像归档/权限调整/材料入库领用退料复核全部追加留痕 |
 | `t_bootstrap_lock` | 起步幂等锁，固定单行 id=1 |
@@ -84,7 +84,7 @@
 | `POST /api/repair-projects/{id}/start` | 开工 |
 | `POST /api/repair-projects/{id}/stages` | 登记阶段结果（可多次） |
 | `POST /api/repair-projects/{id}/finish` | 修复完成 |
-| `POST /api/repair-projects/{id}/accept` | 验收（PASS/CONDITIONAL） |
+| `POST /api/repair-projects/{id}/acceptance/report` / `/confirm` | museum-14 起验收：提交成果报告（按材质+工艺生成清单）→ 专家/保管员分别逐项确认通过后闭环 |
 | `POST /api/repair-projects/{id}/cancel` | 作废 |
 
 ## 文物多角度影像归档（museum-2）
@@ -595,7 +595,7 @@ mvn test
 | `POST /api/borrow-extensions/{extensionId}/approvals` | 延期重审链签署（高风险仍须馆长签名） |
 | `GET/POST /api/repair-grade-compensations[/{id}/resolve]` | 等级补偿列表/详情/闭环确认（成对借阅补偿先闭环） |
 | `GET/POST /api/borrow-compensations[/{id}/resolve]?viewerCampus=` | 借阅补偿列表/详情（保险按馆区脱敏）/RECALL 或补充确认闭环 |
-| `POST /api/repair-projects/{id}/accept` | 验收：`result=CONDITIONAL` 时必带 `gradeAfter`，触发成对补偿 |
+| museum-14 起：专家在 `/acceptance/confirm` 提 `CONDITIONAL` 时必带 `gradeAfter`，双确认通过触发成对补偿 |
 
 ### 测试
 
@@ -847,3 +847,84 @@ CONDITIONAL 必带合法等级、无借阅/已批准待出库 RECALL/已归还 S
 重复定时/手动触发不再重投；照片与箱号绑定、两阶段时序与去重、拆箱只另存不覆盖；
 临时替代能力不足拒绝、差异逐项固化、驳回（缺意见拒绝）装箱单 `REJECTED`、被拒后
 重新申请批准才可发运、受损拆箱必填说明；包装台账全动作留痕。
+
+## 修复成果验收与开放标记（museum-14）
+
+修复成果验收不再由一个"验收"动作一步完成，而是：修复师提交**成果报告**，系统按
+**文物材质 + 修复工艺**生成验收清单；**馆内专家与保管员分别逐项确认**，缺一项
+（或缺结论）即进入整改；整改补修完成后重新提交、轮次递增，旧轮次全部保留；
+**双方全部条目合格的轮次才验收通过**。开放展示标记**只能在验收通过后设置**；
+验收通过后发现问题生成**补修单**并**自动撤下开放但保留原开放记录**，补修完成
+重新验收通过后方可再次开放（另起新标记行）。**公众页面只展示已授权影像与摘要**。
+验收结果必须**交叉核对**——详情、列表、CSV 导出与台账流水四端同口径。
+
+### 数据模型
+
+| 表 | 说明 |
+| --- | --- |
+| `t_repair_acceptance_batch` | 验收批次：一项目按轮次一行（整改重提轮次+1）。`REPORTED 待双确认 / RECTIFYING 整改中 / PASSED 验收通过`，固化材质快照、工艺、报告、专家提出的验收结论 |
+| `t_repair_acceptance_item` | 验收清单条目：批次轮次内按材质+工艺展开的验收要点，随轮次快照只追加 |
+| `t_repair_acceptance_confirm` | 逐项确认：`EXPERT 馆内专家 / KEEPER 保管员` 分别确认不可互代，一批次一条目一角色一行；`PASS/FAIL`（缺项落 FAIL「未确认（缺项）」） |
+| `t_repair_rework_order` | 补修单：`RECTIFY 验收整改`（确认不合格自动开立）/ `POST_PASS 验收后发现问题`；`OPEN→DOING→DONE` 只追加；POST_PASS 未完成以 `post_open_key=project_id` 稀疏唯一 |
+| `t_open_display_mark` | 开放展示标记：每次开放一段一行；`ON/OFF`，撤下保留开放人/时间并指向补修单；`open_key=project_id` 稀疏唯一保证同项目同时只有一个 ON |
+| `t_public_image_grant` | 公众影像授权：只追加，授权时必填公众摘要；撤销只置 `REVOKED` 不删行，以最新一行判定当前是否授权 |
+| `t_repair_acceptance` | 验收记录：museum-14 起放开项目唯一约束，补修重新验收通过追加新记录（只增不删），取最新一条为当前结论 |
+
+### 验收与开放规则
+
+- **清单按材质+工艺生成**：修复师报告声明工艺 `CLEAN 清洗 / REPAIR 补配 / STABILIZE 加固 / PROTECT 封护`，按文物材质从 `museum.acceptance.templates` 取专属模板，未配置回落该工艺 `DEFAULT` 通用模板（内置青铜/书画/陶瓷专属 + 四工艺通用模板，可配置覆盖）。
+- **分别确认、缺一项就整改**：专家与保管员分别调用确认接口，对清单**全部条目逐条**
+  给结论；未出现在提交中的条目按缺项处理并落 `FAIL`，一方有任一不合格本轮即置
+  `RECTIFYING` 并自动开立 `RECTIFY` 补修单。**同方同轮只能确认一次**，角色只认
+  `EXPERT/KEEPER`。专家全合格时提出结论 `PASS/CONDITIONAL`（附条件通过必填
+  `gradeAfter`，museum-10 等级/借阅补偿联动不变；**补修后重新验收只能 PASS**）。
+- **双确认齐备才通过**：最后一方全合格时固化验收记录、项目 `REPAIRED→ACCEPTED`；
+  仅一方合格批次仍停留 `REPORTED`，返回等待另一方。
+- **开放标记**：仅 `ACCEPTED` 项目可设 ON；已 ON 不能重复开放。手动撤下或补修
+  自动撤下都**只置 OFF 保留原行**（开放人、开放时间、撤下原因、关联补修单齐全），
+  重新验收通过后再次开放另起新行。
+- **验收后补修**：`ACCEPTED` 项目发现问题可开 `POST_PASS` 补修单，同一项目同时
+  只有一张在途（稀疏唯一键）；开立即自动撤下开放、项目转 `REWORKING`（新增项目
+  状态，计入"未闭环修复"口径，借阅出库/文物撤销相应拦截）；完成后项目回到
+  `REPAIRED`，须**重新提交报告并双确认通过**才能再次开放。
+- **公众页面**：`GET /api/public/relics` 仅列当前 ON 的文物，且只收最新授权为
+  `GRANTED` 的**有效**影像与授权时登记的摘要；未授权、授权撤销、影像作废、文物
+  未开放/已撤销的均不出现，内部修复报告不外泄。
+- **四端交叉核对**：列表与 CSV 导出共用同一查询（行集/顺序/列口径一致），每行给
+  清单项数、专家/保管员合格项数、双方是否齐备、在途补修单号、是否开放、最新验收
+  结论；验收详情给全轮次+确认+补修+开放历史+全部验收记录；台账只追加记录
+  `ACCEPT_CHECKLIST/ACCEPT_REPORT/ACCEPT_CONFIRM/ACCEPT_RECTIFY/ACCEPT` 与
+  `OPEN_MARK_ON/OFF、REWORK_*、PUBLIC_GRANT(_REVOKE)`。验收不能只看详情，要
+  对照列表、导出与日志四端一致。
+
+### 验收与公众接口
+
+| 方法与路径 | 作用 |
+| --- | --- |
+| `POST /api/repair-projects/{id}/acceptance/report` | 修复师提交成果报告（工艺+摘要+详述），按材质+工艺生成本轮清单 |
+| `POST /api/repair-projects/{id}/acceptance/confirm` | 专家/保管员分别逐项确认（缺项即 FAIL；专家带 PASS/CONDITIONAL+gradeAfter），返回 passed/status/缺项与补修单 |
+| `GET /api/repair-projects/{id}/acceptance` | 验收详情：全部轮次清单与双确认、补修单、开放标记历史、全部验收记录 |
+| `GET /api/repair-acceptances` | 验收批次列表（按文物/项目/状态/openOnly/reworkOnly 过滤） |
+| `GET /api/repair-acceptances/export` | CSV 导出：与列表同一行集同一顺序同一列口径 |
+| `POST /api/repair-projects/{id}/acceptance/open` / `.../open/revoke` | 设置开放标记（仅验收通过后）/ 手动撤下（记录保留） |
+| `GET .../acceptance/open-marks` | 开放标记历史（每次开放一段一行） |
+| `POST .../acceptance/rework-orders` | 验收通过后发现问题：开立 POST_PASS 补修单，自动撤下开放 |
+| `POST .../acceptance/rework-orders/{rid}/start` / `/finish` | 补修开工 / 完成（必填结果说明；验收后补修完成项目回待验收） |
+| `GET .../acceptance/rework-orders` | 项目全部补修单（整改+验收后，只追加） |
+| `POST /api/relics/{relicId}/public-grants` | 授权影像对公众展示（必填公众摘要；只追加） |
+| `GET /api/relics/{relicId}/public-grants` | 文物的全部授权记录（含已撤销） |
+| `POST /api/public-grants/{id}/revoke` | 撤销授权（REVOKED 保留，公众页即时不可见） |
+| `GET /api/public/relics` | 公众页面：开放中文物 + 已授权影像与摘要（唯一对外只读出口） |
+
+### 测试
+
+`RepairAcceptanceOpenTest`（独立内存库 + 临时影像目录）覆盖：
+青铜材质清洗/补配清单按材质专属展开、未知材质回落通用模板、工艺码非法拒绝；
+第一轮专家**缺一项**自动整改并落「未确认（缺项）」、补修未完成不能重报、
+第二轮一项 FAIL 再次整改（两轮记录并存）；第三轮仅专家确认不通过、同方重复确认/
+非法角色/代签拒绝、双确认齐备才 `ACCEPTED`；开放前设标记拒绝、通过后可设、
+重复开放拒绝；跨文物影像授权拒绝、缺摘要拒绝；验收后问题开立补修单自动撤下开放、
+在途唯一、补修中不能开放、**原开放人/时间/补修关联保留**；补修完成回待验收、
+CONDITIONAL 重验被拒只能 PASS、重新开放另起新行且原 OFF 行保留；授权撤销公众页
+即时消失但记录保留、重新授权只追加；详情 4 轮次/3 补修单/2 验收记录、列表按状态
+与开放过滤、CSV 与列表同行集、台账全动作留痕——**详情/列表/导出/日志四端一致**。

@@ -1,7 +1,6 @@
 package com.evops.controller;
 
 import com.evops.common.ApiResponse;
-import com.evops.dto.AcceptRequest;
 import com.evops.dto.CancelRequest;
 import com.evops.dto.ProjectCreateRequest;
 import com.evops.dto.StageRequest;
@@ -10,6 +9,7 @@ import com.evops.entity.RepairOperationAttempt;
 import com.evops.entity.RepairProject;
 import com.evops.entity.RepairStage;
 import com.evops.service.RepairOperationService;
+import com.evops.service.RepairAcceptanceService;
 import com.evops.service.RepairService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -35,11 +35,14 @@ public class RepairController {
 
     private final RepairService repairService;
     private final RepairOperationService operationService;
+    private final RepairAcceptanceService acceptanceService;
 
     public RepairController(RepairService repairService,
-                            RepairOperationService operationService) {
+                            RepairOperationService operationService,
+                            RepairAcceptanceService acceptanceService) {
         this.repairService = repairService;
         this.operationService = operationService;
+        this.acceptanceService = acceptanceService;
     }
 
     /** 立项：委托人、修复方案；项目编号重复会被拒绝 */
@@ -73,12 +76,8 @@ public class RepairController {
         return ApiResponse.ok(operationService.finish(id, requestNo, operatorName));
     }
 
-    /** 验收：项目闭环（并发安全，重复验收只一个生效） */
-    @PostMapping("/{id}/accept")
-    public ApiResponse<RepairAcceptance> accept(@PathVariable Long id,
-                                                @Valid @RequestBody AcceptRequest request) {
-        return ApiResponse.ok(operationService.accept(id, request));
-    }
+    // museum-14 起验收不再单步完成：修复完成后由修复师提交成果报告、
+    // 馆内专家与保管员分别逐项确认，接口见 /api/repair-projects/{id}/acceptance。
 
     /** 作废：只改状态（并发安全） */
     @PostMapping("/{id}/cancel")
@@ -95,7 +94,7 @@ public class RepairController {
         return ApiResponse.ok(operationService.listAttempts(id, operation));
     }
 
-    /** 项目详情：项目 + 阶段结果 + 验收记录 */
+    /** 项目详情：项目 + 阶段结果 + 验收记录 + 验收流程（报告/双确认/整改/开放/补修） */
     @GetMapping("/{id}")
     public ApiResponse<Map<String, Object>> get(@PathVariable Long id) {
         RepairProject project = repairService.requireProject(id);
@@ -106,6 +105,8 @@ public class RepairController {
         detail.put("project", project);
         detail.put("stages", stages);
         detail.put("acceptance", acceptance);
+        // museum-14：验收清单轮次、双方逐项确认、补修单、开放标记一并可交叉核对
+        detail.putAll(acceptanceService.detail(id));
         return ApiResponse.ok(detail);
     }
 }

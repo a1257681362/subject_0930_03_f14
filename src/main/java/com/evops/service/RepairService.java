@@ -176,12 +176,16 @@ public class RepairService {
         return project;
     }
 
-    /** 验收：REPAIRED -> ACCEPTED，一个项目仅一条验收记录 */
+    /**
+     * 验收闭环（museum-14 起由 {@link RepairAcceptanceService} 在「馆内专家 + 保管员」
+     * 逐项确认全部合格后调用）：REPAIRED -> ACCEPTED，固化一条验收记录。
+     * 验收通过后发现问题、补修完成重新验收通过时会再追加一条，验收记录只增不删。
+     */
     @Transactional
-    public RepairAcceptance accept(Long projectId, AcceptRequest req) {
+    public RepairAcceptance finalizeAcceptance(Long projectId, AcceptRequest req, Integer roundNo) {
         RepairProject project = requireProject(projectId);
         if (!PROJECT_REPAIRED.equals(project.getStatus())) {
-            throw new IllegalArgumentException("项目未处于待验收状态，不能验收: " + project.getProjectNo());
+            throw new IllegalArgumentException("项目未处于待验收状态，不能验收通过: " + project.getProjectNo());
         }
         String result = (req.getResult() == null || req.getResult().isEmpty())
                 ? ACCEPT_PASS : req.getResult();
@@ -209,7 +213,8 @@ public class RepairService {
 
         ledgerService.append(project.getRelicId(), projectId, null,
                 ACTION_ACCEPT, project.getProjectNo(),
-                "验收" + (ACCEPT_PASS.equals(result) ? "通过" : "附条件通过")
+                "第" + (roundNo == null ? "?" : roundNo) + "轮验收双确认通过，验收结论"
+                        + (ACCEPT_PASS.equals(result) ? "通过" : "附条件通过")
                         + "，验收人：" + req.getAcceptedBy(), now);
 
         // 部分成功：等级立即调整并成对开立保护等级/借阅补偿
@@ -220,6 +225,8 @@ public class RepairService {
         }
         return acceptance;
     }
+
+    /** 补修完成：ACCEPTED 项目开立验收后补修单后置为 REWORKING；此处不开放此旁路 */
 
     /** 作废：仅 PLANNED / REPAIRING 可作废，记录保留 */
     @Transactional
@@ -261,8 +268,19 @@ public class RepairService {
                 .orderByAsc(RepairStage::getStageNo));
     }
 
+    /** 最新一条验收记录（museum-14 起补修重验可能产生多条，取最近一轮） */
     public RepairAcceptance getAcceptance(Long projectId) {
-        return acceptanceMapper.selectOne(new LambdaQueryWrapper<RepairAcceptance>()
-                .eq(RepairAcceptance::getProjectId, projectId));
+        return acceptanceMapper.selectList(new LambdaQueryWrapper<RepairAcceptance>()
+                        .eq(RepairAcceptance::getProjectId, projectId)
+                        .orderByDesc(RepairAcceptance::getId)
+                        .last("LIMIT 1"))
+                .stream().findFirst().orElse(null);
+    }
+
+    /** 全部验收记录（补修重新验收只追加） */
+    public List<RepairAcceptance> listAcceptances(Long projectId) {
+        return acceptanceMapper.selectList(new LambdaQueryWrapper<RepairAcceptance>()
+                .eq(RepairAcceptance::getProjectId, projectId)
+                .orderByAsc(RepairAcceptance::getId));
     }
 }

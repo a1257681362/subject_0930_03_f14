@@ -1,7 +1,9 @@
 package com.evops.service;
 
 import com.evops.constant.MuseumConstants;
-import com.evops.dto.AcceptRequest;
+import com.evops.dto.AcceptanceConfirmRequest;
+import com.evops.dto.AcceptanceItemResult;
+import com.evops.dto.AcceptanceReportRequest;
 import com.evops.dto.BootstrapResult;
 import com.evops.dto.IntakeRequest;
 import com.evops.dto.LoanRequest;
@@ -69,6 +71,7 @@ public class BootstrapService {
     private final RepairPlanService planService;
     private final MaterialAccountingService materialService;
     private final MaterialReviewScheduler reviewScheduler;
+    private final RepairAcceptanceService acceptanceService;
     private final TransactionTemplate transactionTemplate;
 
     public BootstrapService(BootstrapLockMapper lockMapper,
@@ -79,6 +82,7 @@ public class BootstrapService {
                             RepairPlanService planService,
                             MaterialAccountingService materialService,
                             MaterialReviewScheduler reviewScheduler,
+                            RepairAcceptanceService acceptanceService,
                             PlatformTransactionManager transactionManager) {
         this.lockMapper = lockMapper;
         this.relicService = relicService;
@@ -88,6 +92,7 @@ public class BootstrapService {
         this.planService = planService;
         this.materialService = materialService;
         this.reviewScheduler = reviewScheduler;
+        this.acceptanceService = acceptanceService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -219,11 +224,9 @@ public class BootstrapService {
 
         repairService.finishRepair(project.getId());
 
-        AcceptRequest acceptReq = new AcceptRequest();
-        acceptReq.setAcceptedBy("藏品部验收组");
-        acceptReq.setResult(MuseumConstants.ACCEPT_PASS);
-        acceptReq.setOpinion("补配部位牢固、随色协调，符合验收要求，同意结项。");
-        repairService.accept(project.getId(), acceptReq);
+        // museum-14：修复师提交成果报告（按材质+工艺生成验收清单），
+        // 馆内专家与保管员分别逐项确认，双方全部合格才验收通过。
+        acceptanceSubmitAndConfirm(project.getId());
 
         // 7. 上锁：固定单行，抢插失败将抛 DuplicateKeyException 并整体回滚
         BootstrapLock newLock = new BootstrapLock();
@@ -233,6 +236,48 @@ public class BootstrapService {
         newLock.setBootstrappedAt(LocalDateTime.now());
         lockMapper.insert(newLock);
         return newLock;
+    }
+
+    /** 提交成果报告并由馆内专家、保管员分别逐项确认全部合格（起步样本演示完整验收） */
+    @SuppressWarnings("unchecked")
+    private void acceptanceSubmitAndConfirm(Long projectId) {
+        AcceptanceReportRequest report = new AcceptanceReportRequest();
+        report.setCrafts(java.util.Arrays.asList(
+                MuseumConstants.CRAFT_CLEAN,
+                MuseumConstants.CRAFT_REPAIR,
+                MuseumConstants.CRAFT_STABILIZE,
+                MuseumConstants.CRAFT_PROTECT));
+        report.setReportSummary("裂隙矫形补配、口沿补铸随色与缓蚀封护全部完成，自检合格");
+        report.setReportDetail("按会签方案完成清洗除锈、矫形补配、加固与封护四道工艺，接口贴合、随色协调。");
+        report.setReportedBy("修复师甲");
+        acceptanceService.submitReport(projectId, report);
+
+        java.util.Map<String, Object> detail = acceptanceService.detail(projectId);
+        java.util.List<java.util.Map<String, Object>> batches =
+                (java.util.List<java.util.Map<String, Object>>) detail.get("batches");
+        java.util.Map<String, Object> round = batches.get(batches.size() - 1);
+        java.util.List<com.evops.entity.AcceptanceChecklistItem> items =
+                (java.util.List<com.evops.entity.AcceptanceChecklistItem>) round.get("items");
+        java.util.List<AcceptanceItemResult> results = new java.util.ArrayList<>();
+        for (com.evops.entity.AcceptanceChecklistItem item : items) {
+            AcceptanceItemResult r = new AcceptanceItemResult();
+            r.setItemId(item.getId());
+            r.setResult(MuseumConstants.ITEM_PASS);
+            r.setOpinion("符合验收要求");
+            results.add(r);
+        }
+        AcceptanceConfirmRequest expert = new AcceptanceConfirmRequest();
+        expert.setConfirmerRole(MuseumConstants.ACC_ROLE_EXPERT);
+        expert.setConfirmerName("馆内修复专家·张");
+        expert.setResult(MuseumConstants.ACCEPT_PASS);
+        expert.setItems(results);
+        acceptanceService.confirm(projectId, expert);
+
+        AcceptanceConfirmRequest keeper = new AcceptanceConfirmRequest();
+        keeper.setConfirmerRole(MuseumConstants.ACC_ROLE_KEEPER);
+        keeper.setConfirmerName("库房保管员·王");
+        keeper.setItems(results);
+        acceptanceService.confirm(projectId, keeper);
     }
 
     private void seedMaterialAccounting(Relic relic, RepairProject project, LocalDateTime now) {

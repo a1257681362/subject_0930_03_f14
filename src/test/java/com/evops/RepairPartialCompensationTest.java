@@ -218,12 +218,58 @@ class RepairPartialCompensationTest {
         expectOk(postEmpty("/api/repair-projects/" + projectId + "/finish"));
     }
 
-    /** 附条件通过验收：必须带合法的验收后保护等级 */
+    /**
+     * 附条件通过验收（museum-14 新流程）：提交成果报告 -> 馆内专家以 CONDITIONAL
+     * 逐项确认（必须带合法的验收后保护等级）-> 保管员逐项确认通过。
+     * gradeAfter 为 null/非法 时在专家确认环节即被拒，项目仍待验收，可再次确认。
+     */
     private MvcResult acceptConditional(long projectId, String gradeAfter) throws Exception {
-        String gradeJson = gradeAfter == null ? "" : ",\"gradeAfter\":\"" + gradeAfter + "\"";
-        return postJson("/api/repair-projects/" + projectId + "/accept", "{"
-                + "\"acceptedBy\":\"验收组\",\"result\":\"CONDITIONAL\",\"opinion\":\"部分成功：附条件通过\""
-                + gradeJson + "}");
+        // 前两次确认被拒时报告已在轮次 1 待确认：重复提交仅容忍「已提交待确认」
+        MvcResult reportRes = postJson("/api/repair-projects/" + projectId + "/acceptance/report", "{"
+                + "\"crafts\":[\"REPAIR\",\"STABILIZE\"],\"reportSummary\":\"部分部位附条件完成\","
+                + "\"reportedBy\":\"修复师丁\"}");
+        JsonNode reportRoot = objectMapper.readTree(
+                reportRes.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8));
+        if (!reportRoot.get("success").asBoolean()
+                && !reportRoot.get("message").asText().contains("待馆内专家与保管员确认")) {
+            return reportRes;
+        }
+        JsonNode detail = dataOf(getJson(
+                "/api/repair-projects/" + projectId + "/acceptance"));
+        JsonNode items = detail.get("batches").get(0).get("items");
+        StringBuilder expert = new StringBuilder("{\"confirmerRole\":\"EXPERT\","
+                + "\"confirmerName\":\"验收专家组\",\"result\":\"CONDITIONAL\"");
+        if (gradeAfter != null) {
+            expert.append(",\"gradeAfter\":\"").append(gradeAfter).append('"');
+        }
+        expert.append(",\"items\":[");
+        for (int i = 0; i < items.size(); i++) {
+            if (i > 0) {
+                expert.append(',');
+            }
+            expert.append("{\"itemId\":").append(items.get(i).get("id").asLong())
+                    .append(",\"result\":\"PASS\",\"opinion\":\"附条件合格\"}");
+        }
+        expert.append("]}");
+        MvcResult expertRes = postJson(
+                "/api/repair-projects/" + projectId + "/acceptance/confirm", expert.toString());
+        JsonNode root = objectMapper.readTree(
+                expertRes.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8));
+        if (!root.get("success").asBoolean()) {
+            return expertRes; // 缺/错 gradeAfter：专家确认被拒，无需保管员确认
+        }
+        StringBuilder keeper = new StringBuilder("{\"confirmerRole\":\"KEEPER\","
+                + "\"confirmerName\":\"验收保管员\",\"items\":[");
+        for (int i = 0; i < items.size(); i++) {
+            if (i > 0) {
+                keeper.append(',');
+            }
+            keeper.append("{\"itemId\":").append(items.get(i).get("id").asLong())
+                    .append(",\"result\":\"PASS\"}");
+        }
+        keeper.append("]}");
+        return postJson("/api/repair-projects/" + projectId + "/acceptance/confirm",
+                keeper.toString());
     }
 
     private MvcResult planSign(long versionId, String role, String name) throws Exception {

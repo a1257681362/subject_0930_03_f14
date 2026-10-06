@@ -1,7 +1,6 @@
 package com.evops.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.evops.dto.AcceptRequest;
 import com.evops.dto.CancelRequest;
 import com.evops.dto.StageRequest;
 import com.evops.entity.RepairAcceptance;
@@ -83,11 +82,8 @@ public class RepairOperationService {
                 () -> repairService.finishRepair(projectId));
     }
 
-    /** 并发安全的验收 */
-    public RepairAcceptance accept(Long projectId, AcceptRequest req) {
-        return run(projectId, OP_ACCEPT, req.getRequestNo(), req.getAcceptedBy(),
-                () -> repairService.accept(projectId, req));
-    }
+    // museum-14 起验收改为「成果报告 -> 馆内专家/保管员分别逐项确认」流程，
+    // 入口见 RepairAcceptanceService / RepairAcceptanceController，不再有单步验收。
 
     /** 并发安全的作废 */
     public RepairProject cancel(Long projectId, CancelRequest req) {

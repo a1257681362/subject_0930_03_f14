@@ -348,7 +348,8 @@ public class BorrowApplicationService {
         }
         Long openRepair = projectMapper.selectCount(new LambdaQueryWrapper<RepairProject>()
                 .eq(RepairProject::getRelicId, app.getRelicId())
-                .in(RepairProject::getStatus, PROJECT_PLANNED, PROJECT_REPAIRING, PROJECT_REPAIRED));
+                .in(RepairProject::getStatus,
+                        PROJECT_PLANNED, PROJECT_REPAIRING, PROJECT_REPAIRED, PROJECT_REWORKING));
         if (openRepair != null && openRepair > 0) {
             throw new IllegalArgumentException("文物存在未验收闭环的修复项目，借阅禁止出库: "
                     + app.getApplicationNo());

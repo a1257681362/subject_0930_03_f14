@@ -75,6 +75,16 @@ museum:
     # 待送达通知补偿扫描间隔（毫秒）；恢复后行级认领补投，同一装箱单只通知一次
     notify-scan-interval-ms: 300000
     notify-scan-on-startup: true
+  # 修复成果验收与开放标记（museum-14）
+  acceptance:
+    # 验收清单按「材质 + 工艺」生成，内置 CLEAN/REPAIR/STABILIZE/PROTECT 四工艺通用模板，
+    # 及青铜/书画/陶瓷专属模板；如需覆盖，按 [craft, material, items[]] 配置 templates，
+    # material=DEFAULT 表示该工艺的通用兜底模板。
+    # templates:
+    #   - craft: CLEAN
+    #     material: DEFAULT
+    #     items:
+    #       - 表面附着物与污染物已清除干净
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml

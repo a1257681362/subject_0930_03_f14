@@ -120,12 +120,24 @@ class MuseumLedgerRuleTest {
         expectFail(postJson("/api/repair-projects/" + projectId + "/cancel",
                 "{\"reason\":\"想作废\"}"), "不允许作废");
 
-        // 验收
-        expectOk(postJson("/api/repair-projects/" + projectId + "/accept", "{"
-                + "\"acceptedBy\":\"验收组\",\"result\":\"PASS\",\"opinion\":\"合格\"}"));
-        // 已验收不能再验收
-        expectFail(postJson("/api/repair-projects/" + projectId + "/accept",
-                "{\"acceptedBy\":\"验收组\"}"), "不能验收");
+        // museum-14 验收：修复师提交成果报告（按材质+工艺生成清单），
+        // 馆内专家与保管员分别逐项确认，双方全部合格才验收通过
+        expectFail(postJson("/api/repair-projects/" + projectId + "/acceptance/report", "{"
+                + "\"crafts\":[\"CLEAN\"],\"reportSummary\":\"\",\"reportedBy\":\"修复师乙\"}"),
+                "成果报告摘要不能为空");
+        expectOk(postJson("/api/repair-projects/" + projectId + "/acceptance/report", "{"
+                + "\"crafts\":[\"CLEAN\"],\"reportSummary\":\"表面清洗完成，自检合格\","
+                + "\"reportedBy\":\"修复师乙\"}"));
+        // 报告已提交待确认，不能重复提交
+        expectFail(postJson("/api/repair-projects/" + projectId + "/acceptance/report", "{"
+                + "\"crafts\":[\"CLEAN\"],\"reportSummary\":\"再次提交\","
+                + "\"reportedBy\":\"修复师乙\"}"), "待馆内专家与保管员确认");
+        passAcceptance(projectId, "验收专家", "验收保管员");
+        // 已验收通过：项目闭环，不能再提交成果报告/确认
+        expectFail(postJson("/api/repair-projects/" + projectId + "/acceptance/report", "{"
+                + "\"crafts\":[\"CLEAN\"],\"reportSummary\":\"还想再报\","
+                + "\"reportedBy\":\"修复师乙\"}"), "待验收状态");
+        expectFail(confirmAll(projectId, "EXPERT", "验收专家", "PASS", null), "待验收状态");
 
         // ---- 撤销：只改状态，记录仍可查 ----
         expectOk(postJson("/api/relics/" + relicId + "/revoke",
@@ -170,6 +182,50 @@ class MuseumLedgerRuleTest {
         expectOk(postJson("/api/plan-versions/" + versionId + "/sign", "{"
                 + "\"signerRole\":\"" + role + "\",\"signerName\":\"" + name + "\","
                 + "\"decision\":\"APPROVE\"}"));
+    }
+
+    /** 馆内专家 + 保管员对当轮清单逐项 PASS，双方齐全后验收通过 */
+    private void passAcceptance(long projectId, String expert, String keeper) throws Exception {
+        MvcResult expertRes = confirmAll(projectId, "EXPERT", expert, "PASS", null);
+        JsonNode expertNode = objectMapper.readTree(
+                expertRes.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8))
+                .get("data");
+        assertEquals(false, expertNode.get("passed").asBoolean(), "仅专家确认不应通过");
+        assertEquals("KEEPER", expertNode.get("waitingFor").asText(), "专家确认后等待保管员");
+        MvcResult keeperRes = confirmAll(projectId, "KEEPER", keeper, null, null);
+        JsonNode keeperNode = objectMapper.readTree(
+                keeperRes.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8))
+                .get("data");
+        assertEquals(true, keeperNode.get("passed").asBoolean(), "专家+保管员双确认应通过");
+        assertEquals("PASSED", keeperNode.get("status").asText());
+    }
+
+    /** 按验收详情中当轮全部条目逐项提交确认（全部 PASS） */
+    private MvcResult confirmAll(long projectId, String role, String name, String result,
+                                 String gradeAfter) throws Exception {
+        JsonNode detail = dataOf(getJson(
+                "/api/repair-projects/" + projectId + "/acceptance"));
+        JsonNode batches = detail.get("batches");
+        JsonNode items = batches.get(batches.size() - 1).get("items");
+        StringBuilder body = new StringBuilder("{\"confirmerRole\":\"" + role
+                + "\",\"confirmerName\":\"" + name + "\",\"items\":[");
+        for (int i = 0; i < items.size(); i++) {
+            if (i > 0) {
+                body.append(',');
+            }
+            body.append("{\"itemId\":").append(items.get(i).get("id").asLong())
+                    .append(",\"result\":\"PASS\",\"opinion\":\"合格\"}");
+        }
+        body.append(']');
+        if (result != null) {
+            body.append(",\"result\":\"").append(result).append('"');
+        }
+        if (gradeAfter != null) {
+            body.append(",\"gradeAfter\":\"").append(gradeAfter).append('"');
+        }
+        body.append('}');
+        return postJson("/api/repair-projects/" + projectId + "/acceptance/confirm",
+                body.toString());
     }
 
     private MvcResult postJson(String uri, String body) throws Exception {

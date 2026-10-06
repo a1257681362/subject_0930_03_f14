@@ -96,7 +96,9 @@ class BootstrapApiTest {
                 "REPAIR_START",
                 "MATERIAL_ISSUE", "MATERIAL_REVIEW", "MATERIAL_RETURN",
                 "REPAIR_STAGE", "REPAIR_STAGE",
-                "REPAIR_FINISH", "ACCEPT"), actions);
+                "REPAIR_FINISH",
+                "ACCEPT_CHECKLIST", "ACCEPT_REPORT",
+                "ACCEPT_CONFIRM", "ACCEPT_CONFIRM", "ACCEPT"), actions);
     }
 
     private void assertFullChain(JsonNode data) {

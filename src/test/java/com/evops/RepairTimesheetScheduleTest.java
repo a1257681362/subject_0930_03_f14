@@ -186,12 +186,13 @@ class RepairTimesheetScheduleTest {
         assertTrue(hasAction(ledger, "RESCHEDULE_SUGGEST"), "改期建议须留痕");
 
         // ---- 文物置为无效后：页面/导出/后台统计同口径 ----
-        // 闭环工单1：登记阶段 -> 完成 -> 验收，然后撤销文物
+        // 闭环工单1：登记阶段 -> 完成 -> 成果报告双确认验收，然后撤销文物
         expectOk(postJson("/api/repair-projects/" + project1 + "/stages",
                 "{\"stageName\":\"清洗\",\"stageResult\":\"完成\",\"operator\":\"修复师甲\"}"));
         expectOk(postEmpty("/api/repair-projects/" + project1 + "/finish"));
-        expectOk(postJson("/api/repair-projects/" + project1 + "/accept",
-                "{\"acceptedBy\":\"验收员\",\"result\":\"PASS\"}"));
+        expectOk(postJson("/api/repair-projects/" + project1 + "/acceptance/report", "{"
+                + "\"crafts\":[\"CLEAN\"],\"reportSummary\":\"排程测试验收\",\"reportedBy\":\"修复师甲\"}"));
+        confirmAllPass(project1);
         expectOk(postJson("/api/relics/" + relic1 + "/revoke",
                 "{\"reason\":\"档案注销测试\"}"));
         assertEquals("REVOKED", dataOf(getJson("/api/relics/" + relic1))
@@ -308,6 +309,33 @@ class RepairTimesheetScheduleTest {
                 "{\"signerRole\":\"EXTERNAL\",\"signerName\":\"外部专家乙\",\"decision\":\"APPROVE\"}"));
         expectOk(postEmpty("/api/repair-projects/" + projectId + "/start"));
         return projectId;
+    }
+
+    /** 馆内专家与保管员分别对当轮清单逐项 PASS，验收通过 */
+    private void confirmAllPass(long projectId) throws Exception {
+        JsonNode detail = dataOf(getJson(
+                "/api/repair-projects/" + projectId + "/acceptance"));
+        JsonNode batches = detail.get("batches");
+        JsonNode items = batches.get(batches.size() - 1).get("items");
+        for (String role : new String[]{"EXPERT", "KEEPER"}) {
+            StringBuilder b = new StringBuilder("{\"confirmerRole\":\"" + role
+                    + "\",\"confirmerName\":\"验收" + ("EXPERT".equals(role) ? "专家" : "保管员")
+                    + "\"");
+            if ("EXPERT".equals(role)) {
+                b.append(",\"result\":\"PASS\"");
+            }
+            b.append(",\"items\":[");
+            for (int i = 0; i < items.size(); i++) {
+                if (i > 0) {
+                    b.append(',');
+                }
+                b.append("{\"itemId\":").append(items.get(i).get("id").asLong())
+                        .append(",\"result\":\"PASS\"}");
+            }
+            b.append("]}");
+            expectOk(postJson("/api/repair-projects/" + projectId + "/acceptance/confirm",
+                    b.toString()));
+        }
     }
 
     private MvcResult postJson(String uri, String body) throws Exception {

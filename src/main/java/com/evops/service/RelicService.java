@@ -134,7 +134,7 @@ public class RelicService {
         Long openProjects = projectMapper.selectCount(new LambdaQueryWrapper<RepairProject>()
                 .eq(RepairProject::getRelicId, id)
                 .in(RepairProject::getStatus,
-                        PROJECT_PLANNED, PROJECT_REPAIRING, PROJECT_REPAIRED));
+                        PROJECT_PLANNED, PROJECT_REPAIRING, PROJECT_REPAIRED, PROJECT_REWORKING));
         if (openProjects != null && openProjects > 0) {
             throw new IllegalArgumentException("文物存在未验收/未作废的修复项目，不能撤销");
         }

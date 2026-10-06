@@ -18,11 +18,13 @@ public final class MuseumConstants {
     public static final String GRADE_TWO = "TWO";
     public static final String GRADE_THREE = "THREE";
 
-    /** 修复项目状态：立项 -> 修复中 -> 修复完成 -> 已验收（作废为旁路终态） */
+    /** 修复项目状态：立项 -> 修复中 -> 修复完成 -> 已验收（作废为旁路终态）；
+     *  验收通过后发现问题开立补修单时进入 REWORKING 补修中，补修完成回到待验收重新双确认 */
     public static final String PROJECT_PLANNED = "PLANNED";
     public static final String PROJECT_REPAIRING = "REPAIRING";
     public static final String PROJECT_REPAIRED = "REPAIRED";
     public static final String PROJECT_ACCEPTED = "ACCEPTED";
+    public static final String PROJECT_REWORKING = "REWORKING";
     public static final String PROJECT_CANCELLED = "CANCELLED";
 
     /** 借还状态 */
@@ -572,4 +574,65 @@ public final class MuseumConstants {
     public static final String ACTION_PACK_NOTIFY_PENDING = "PACK_NOTIFY_PENDING";
     public static final String ACTION_PACK_NOTIFY_SENT = "PACK_NOTIFY_SENT";
     public static final String ACTION_PACK_UNPACK = "PACK_UNPACK";
+
+    // --------------------------------------------------------------------
+    // museum-14 修复成果验收与开放标记
+    // --------------------------------------------------------------------
+
+    /**
+     * 验收批次状态：
+     * REPORTED 修复师已提交成果报告，待双确认
+     * / RECTIFYING 专家或保管员确认不通过，整改中（清单缺项即进入）
+     * / PASSED 双方确认齐全，验收通过，项目闭环。
+     */
+    public static final String ACC_BATCH_REPORTED = "REPORTED";
+    public static final String ACC_BATCH_RECTIFYING = "RECTIFYING";
+    public static final String ACC_BATCH_PASSED = "PASSED";
+
+    /** 清单条目结论：合格 / 不合格（任一条不合格，该方确认不通过，进入整改） */
+    public static final String ITEM_PASS = "PASS";
+    public static final String ITEM_FAIL = "FAIL";
+
+    /** 验收确认角色：馆内专家 / 保管员（分别确认，不可互代） */
+    public static final String ACC_ROLE_EXPERT = "EXPERT";
+    public static final String ACC_ROLE_KEEPER = "KEEPER";
+
+    /** 补修单来源：验收整改（未通过轮次）/ 验收通过后发现问题 */
+    public static final String REWORK_RECTIFY = "RECTIFY";
+    public static final String REWORK_POST_PASS = "POST_PASS";
+
+    /** 补修单状态：待补修 / 补修中 / 已完成（完成后须重新验收，原开放记录保留） */
+    public static final String REWORK_OPEN = "OPEN";
+    public static final String REWORK_DOING = "DOING";
+    public static final String REWORK_DONE = "DONE";
+
+    /** 开放展示标记状态：开放中 / 已撤下（撤下不删行，原开放记录保留） */
+    public static final String OPEN_MARK_ON = "ON";
+    public static final String OPEN_MARK_OFF = "OFF";
+
+    /** 撤下开放标记的原因：补修单开立自动撤下 */
+    public static final String OPEN_REVOKE_REWORK = "REWORK_OPENED";
+
+    /** 公众影像授权状态：已授权对公众展示 / 已撤销授权（撤销不删授权记录与影像） */
+    public static final String GRANT_ACTIVE = "GRANTED";
+    public static final String GRANT_REVOKED = "REVOKED";
+
+    /** 工艺码（清单按 材质 + 工艺 生成）：清洗 / 补配 / 加固 / 封护 */
+    public static final String CRAFT_CLEAN = "CLEAN";
+    public static final String CRAFT_REPAIR = "REPAIR";
+    public static final String CRAFT_STABILIZE = "STABILIZE";
+    public static final String CRAFT_PROTECT = "PROTECT";
+
+    /** 台账流水动作：验收清单生成/报告提交/专家确认/保管员确认/整改/验收通过/开放标记/撤下/补修/公众授权 */
+    public static final String ACTION_ACCEPT_CHECKLIST = "ACCEPT_CHECKLIST";
+    public static final String ACTION_ACCEPT_REPORT = "ACCEPT_REPORT";
+    public static final String ACTION_ACCEPT_CONFIRM = "ACCEPT_CONFIRM";
+    public static final String ACTION_ACCEPT_RECTIFY = "ACCEPT_RECTIFY";
+    public static final String ACTION_OPEN_MARK_ON = "OPEN_MARK_ON";
+    public static final String ACTION_OPEN_MARK_OFF = "OPEN_MARK_OFF";
+    public static final String ACTION_REWORK_OPEN = "REWORK_OPEN";
+    public static final String ACTION_REWORK_DOING = "REWORK_DOING";
+    public static final String ACTION_REWORK_DONE = "REWORK_DONE";
+    public static final String ACTION_PUBLIC_GRANT = "PUBLIC_GRANT";
+    public static final String ACTION_PUBLIC_GRANT_REVOKE = "PUBLIC_GRANT_REVOKE";
 }
