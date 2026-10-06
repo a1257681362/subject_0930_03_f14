@@ -572,4 +572,35 @@ public final class MuseumConstants {
     public static final String ACTION_PACK_NOTIFY_PENDING = "PACK_NOTIFY_PENDING";
     public static final String ACTION_PACK_NOTIFY_SENT = "PACK_NOTIFY_SENT";
     public static final String ACTION_PACK_UNPACK = "PACK_UNPACK";
+
+    // --------------------------------------------------------------------
+    // museum-14 修复成果验收与开放标记
+    // --------------------------------------------------------------------
+
+    /** 成果报告状态：确认中 / 整改中（缺项，待新一轮报告）/ 验收通过（终态） */
+    public static final String AREPORT_IN_REVIEW = "IN_REVIEW";
+    public static final String AREPORT_RECTIFICATION = "RECTIFICATION";
+    public static final String AREPORT_PASSED = "PASSED";
+
+    /** 清单项确认结果：合格 / 缺项（任一角色任一项缺项即整改） */
+    public static final String ITEM_OK = "OK";
+    public static final String ITEM_MISSING = "MISSING";
+
+    /** 开放展示标记状态：生效中 / 已撤销（撤销留痕，记录保留） */
+    public static final String DISPLAY_GRANT_ACTIVE = "ACTIVE";
+    public static final String DISPLAY_GRANT_REVOKED = "REVOKED";
+
+    /** 补修单状态：待补修 / 已闭环 */
+    public static final String SUPP_OPEN = "OPEN";
+    public static final String SUPP_CLOSED = "CLOSED";
+
+    /** 台账流水动作：成果报告提交 / 逐项确认 / 整改 / 验收通过 / 开放标记设置与撤销 / 补修单开立与闭环 */
+    public static final String ACTION_ACCEPT_REPORT_SUBMIT = "ACCEPT_REPORT_SUBMIT";
+    public static final String ACTION_ACCEPT_CONFIRM = "ACCEPT_CONFIRM";
+    public static final String ACTION_ACCEPT_RECTIFY = "ACCEPT_RECTIFY";
+    public static final String ACTION_ACCEPT_PASS = "ACCEPT_PASS";
+    public static final String ACTION_OPEN_DISPLAY_SET = "OPEN_DISPLAY_SET";
+    public static final String ACTION_OPEN_DISPLAY_REVOKE = "OPEN_DISPLAY_REVOKE";
+    public static final String ACTION_SUPPLEMENT_OPEN = "SUPPLEMENT_OPEN";
+    public static final String ACTION_SUPPLEMENT_CLOSE = "SUPPLEMENT_CLOSE";
 }

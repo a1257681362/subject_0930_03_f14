@@ -847,3 +847,76 @@ CONDITIONAL 必带合法等级、无借阅/已批准待出库 RECALL/已归还 S
 重复定时/手动触发不再重投；照片与箱号绑定、两阶段时序与去重、拆箱只另存不覆盖；
 临时替代能力不足拒绝、差异逐项固化、驳回（缺意见拒绝）装箱单 `REJECTED`、被拒后
 重新申请批准才可发运、受损拆箱必填说明；包装台账全动作留痕。
+
+## 修复成果验收与开放标记（museum-14）
+
+修复成果验收独立于项目验收闭环（museum-1 的 `/accept`）：修复师提交**成果报告**后，
+系统按**文物材质 + 修复工艺**从配置模板（`museum.acceptance.checklist`，
+精确匹配 → `材质+*` → `*+*` 逐级回落）生成**验收清单**；**馆内专家与保管员分别
+逐项确认**（须指定确认人本人，不能代签，每角色一次），**任一项缺项即进入整改**，
+整改后重新提交新一轮报告（轮次项目内递增，旧轮次只读保留）；双方全部合格则
+**验收通过（PASSED，终态）**。**开放展示标记只能在验收通过后设置**，登记对外摘要
+与授权影像子集；**公众页面只展示生效标记中已授权的影像和摘要**（不暴露摄影者、
+设置人等内部字段）；开放后发现问题**开立补修单，原开放记录保留**；验收详情、
+台账列表、CSV 导出与台账流水同一口径，可交叉核对。
+
+### 数据模型
+
+| 表 | 说明 |
+| --- | --- |
+| `t_repair_accept_report` | 成果报告：轮次（项目内唯一递增）、工艺、摘要、指定专家/保管员、提交人；状态 `IN_REVIEW / RECTIFICATION / PASSED` |
+| `t_repair_accept_item` | 验收清单项：提交时按材质+工艺模板固化（`uk(report_id,item_no)`），`expert_result` / `custodian_result` 分别记录双方逐项确认（OK/MISSING） |
+| `t_open_display_grant` | 开放展示标记：关联通过轮报告，登记对外摘要；`ACTIVE / REVOKED`（撤销留痕，记录保留） |
+| `t_open_display_image` | 授权影像子集（`uk(grant_id,image_id)`）：公众页面只展示此子集 |
+| `t_repair_supplement` | 补修单：单号序列取号（`SP-%06d`），关联开放标记；`OPEN / CLOSED`，开立不触碰原开放记录 |
+
+### 验收与开放规则
+
+- **清单按材质+工艺生成**：提交报告时以文物材质 + 报告工艺查配置模板并**固化为清单行**，
+  之后配置变更不改写已生成清单；未命中精确模板回落 `材质+*`，再回落 `*+*` 默认模板。
+- **双人分别确认**：角色 `INTERNAL`（馆内专家）/ `CUSTODIAN`（保管员），确认人须为报告
+  指定确认人本人（缺席不能代签）；每角色只确认一次；逐项结果必须恰好覆盖全部清单项。
+- **缺一项即整改**：任一角色任一项 `MISSING`，报告立即 `RECTIFICATION` 并只读，
+  不等另一角色；整改只能**重新提交新一轮报告**（旧轮次保留可查）。双方全部 `OK`
+  才 `PASSED`；`PASSED` 后不再接受新报告。
+- **开放标记门槛**：仅当项目存在 `PASSED` 报告才能设置开放展示标记；同一项目同时
+  只允许一个生效标记；授权影像须属于该文物且有效（作废影像自动从展示中剔除，
+  授权记录本身保留）。撤销只置 `REVOKED`，记录保留。
+- **公众只读授权内容**：`/api/public/open-displays` 只返回生效标记的对外摘要与授权
+  影像（视角/版本/拍摄时间），不暴露摄影者、设置人等内部字段；未开放/已撤销文物
+  对公众不可见。
+- **补修单保留原开放记录**：须有生效开放标记才能开立补修单；开立/闭环只追加台账，
+  原开放记录（含授权影像）保持原样；闭环登记处置结果，记录保留。
+- **交叉核对**：报告详情、台账列表（`GET /api/accept-reports`）、CSV 导出
+  （`GET /api/accept-reports/export`，与列表同一行集同一顺序，带 BOM）与台账流水
+  （`ACCEPT_REPORT_SUBMIT / ACCEPT_CONFIRM / ACCEPT_RECTIFY / ACCEPT_PASS /
+  OPEN_DISPLAY_SET / OPEN_DISPLAY_REVOKE / SUPPLEMENT_OPEN / SUPPLEMENT_CLOSE`）
+  四处口径一致。
+
+### 成果验收与开放接口
+
+| 方法与路径 | 作用 |
+| --- | --- |
+| `POST /api/repair-projects/{id}/accept-reports` | 修复师提交成果报告（生成验收清单，轮次递增） |
+| `GET /api/repair-projects/{id}/accept-reports` | 项目报告轮次列表（含各轮清单与双方确认结果） |
+| `POST /api/accept-reports/{reportId}/confirm` | 专家/保管员逐项确认（本人确认，缺项即整改） |
+| `GET /api/accept-reports/{reportId}` | 报告详情：报告 + 清单逐项结果 + 项目/文物口径 |
+| `GET /api/accept-reports?relicId=&status=` | 验收台账列表（与导出行集一致） |
+| `GET /api/accept-reports/export` | CSV 导出（与列表同一行集同一顺序） |
+| `POST /api/repair-projects/{id}/open-display` | 设置开放展示标记（须验收通过；登记摘要+授权影像） |
+| `POST /api/open-displays/{grantId}/revoke` | 撤销开放标记（留痕，记录保留） |
+| `GET /api/repair-projects/{id}/open-displays` | 项目开放记录（含已撤销） |
+| `GET /api/public/open-displays` / `GET /api/public/open-displays/{relicId}` | 公众页面：仅生效标记的授权影像与摘要 |
+| `POST /api/repair-projects/{id}/supplements` | 开立补修单（须生效开放标记，原记录保留） |
+| `GET /api/repair-projects/{id}/supplements` | 项目补修单列表（含已闭环） |
+| `POST /api/supplements/{id}/close` | 补修单闭环（登记处置结果） |
+
+### 测试
+
+`RepairAcceptanceOpenDisplayTest`（独立内存库）覆盖：清单按 材质|工艺 精确模板与
+`材质|*` 回落生成；未修复完成/确认中重复提交/验收通过后提交均拒绝；角色非法、
+代签、未覆盖全部清单项拒绝；专家判缺项即整改且报告只读；第二轮双方确认通过；
+验收未通过不能设开放标记、跨文物影像拒绝、重复设置拒绝；公众页面只见授权影像与
+摘要、不暴露内部字段、未开放不可见；补修单开立后原开放记录保留、公众仍可见、
+闭环后不可重复闭环、撤销后不能再开立；**交叉核对**：详情/列表/CSV 导出行集一致，
+台账动作序列完整且顺序正确（整改→通过→开放→补修）。

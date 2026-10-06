@@ -75,6 +75,22 @@ museum:
     # 待送达通知补偿扫描间隔（毫秒）；恢复后行级认领补投，同一装箱单只通知一次
     notify-scan-interval-ms: 300000
     notify-scan-on-startup: true
+  # 修复成果验收与开放标记（museum-14）
+  acceptance:
+    # 验收清单模板：按 材质+工艺 精确匹配；未命中时回落 材质+*，再回落 *+* 默认模板
+    checklist:
+      - material: "*"
+        craft: "*"
+        items: 修复部位与方案记录一致,修复材料批号与用量已核销,影像档案完整（修复前后对照）
+      - material: "青铜"
+        craft: "清洗"
+        items: 表面无清洗剂残留,纹饰无新增损伤,缓蚀封护完成,影像档案完整（修复前后对照）
+      - material: "青铜"
+        craft: "*"
+        items: 表面处理后稳定性合格,纹饰无新增损伤,影像档案完整（修复前后对照）
+      - material: "书画"
+        craft: "*"
+        items: 画心平整无新增折痕,补纸色差在允许范围,影像档案完整（修复前后对照）
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
